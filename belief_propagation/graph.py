@@ -6,7 +6,58 @@ import numpy.typing as npt
 from typing import Callable
 
 
-class TannerGraph:
+class TannerGraph():
+    def __init__(self, pcms: np.ndarray, channel_model: Callable):
+        if pcms.ndim == 2:
+            pcms = np.expand_dims(pcms, 0)
+        k, m, n = pcms.shape        
+        self.v_nodes: dict[int, VNode] = {}
+        self.c_nodes: dict[int, CNode] = {}
+        self.edges = [set() for _ in range(k)]
+        
+        for i in range(m):
+            self.add_c_node(name=f"c{i}", uid=i, num_pcms=k)
+        for j in range(m, m+n):
+            self.add_v_node(name=f"v{j}", channel_model=channel_model, uid=j, num_pcms=k)
+        for num_pcm in range(k):
+            for i in range(m):
+                for j in range(n):
+                    if pcms[num_pcm, i, j] == 1:
+                        self.add_edge(j+m, i, num_pcm)
+    
+    def add_v_node(self, channel_model: Callable, uid: int, num_pcms: int , name: str = "") -> VNode:
+        """
+        :param ordering_key: should reflect order according to parity check matrix, channel symbols in order
+        :param name: name of node.
+        :param channel_model: add an exiting node to graph. If not used a new node is created.
+        """
+        node = VNode(uid, channel_model, num_pcms=num_pcms, name=name)
+        self.v_nodes[node.uid] = node
+        return node
+
+    def add_c_node(self, uid: int, num_pcms: int, name: str = "") -> CNode:
+        """
+        :param ordering_key: use only for debug purposes
+        :param name: name of node
+        """
+        node = CNode(uid, num_pcms, name)
+        self.c_nodes[node.uid] = node
+        return node
+    
+    def add_edge(self, vnode_uid: int, cnode_uid: int, num_pcm: int) -> None:
+        if vnode_uid not in self.v_nodes:
+            raise ValueError()
+        if cnode_uid not in self.c_nodes:
+            raise ValueError()
+        self.c_nodes.get(cnode_uid).register_neighbor(self.v_nodes.get(vnode_uid), num_pcm)
+        self.v_nodes.get(vnode_uid).register_neighbor(self.c_nodes.get(cnode_uid), num_pcm)
+        self.edges[num_pcm].update({(vnode_uid, cnode_uid)})
+
+    def ordered_v_nodes(self) -> list[VNode]:
+        return sorted(self.v_nodes.values())
+
+
+class TannerGraphOld:
     def __init__(self):
         self.v_nodes: dict[int, VNode] = {}
         self.c_nodes: dict[int, CNode] = {}
@@ -85,12 +136,12 @@ class TannerGraph:
         return g
 
     @classmethod
-    def from_biadjacency_matrix(cls, h: npt.ArrayLike, channel_model: Callable) -> TannerGraph:
+    def from_biadjacency_matrix(cls, h: npt.ArrayLike, channel_model: Callable) -> TannerGraphOld:
         """
         :param channel_model: channel model to compute channel symbols llr within v nodes
         :param h: parity check matrix, shape MXN with M check nodes and N variable nodes. assumed binary matrix.
         """
-        g = TannerGraph()
+        g = TannerGraphOld()
         h = np.array(h)
         m, n = h.shape
         for i in range(n):
